@@ -1,8 +1,6 @@
 from flask import Flask, jsonify
 from flask_cors import CORS
 import requests
-import pandas as pd
-import joblib
 import os
 
 app = Flask(__name__)
@@ -11,15 +9,27 @@ CORS(app)  # Enable CORS for all routes
 # Configuration
 READ_API_KEY = "E6MTY3AFE7C0LQI6"
 CHANNEL_ID = "3173091"
-MODEL_PATH = "plant_health_rf.pkl"
 
-# Load Model
-if os.path.exists(MODEL_PATH):
-    model = joblib.load(MODEL_PATH)
-    print(f"✅ Model loaded from {MODEL_PATH}")
-else:
-    print("❌ Model not found! Please run create_dummy_model.py first.")
-    model = None
+# Lightweight NPK Estimation (Since we can't load heavy ML libs on Vercel free tier)
+def estimate_npk(soil, temp, hum, light):
+    """
+    Estimate NPK values based on environmental factors using simple heuristics
+    instead of a heavy Random Forest model.
+    """
+    # Base values (Ideal conditions)
+    n, p, k = 40, 50, 60
+    
+    # Adjust based on Soil Moisture
+    if soil < 30:
+        n -= 10; p -= 10; k -= 10  # Dry soil reduces nutrient availability
+    elif soil > 80:
+        n -= 5; p -= 5; k -= 5     # Leaching risk
+        
+    # Adjust based on Temperature
+    if temp > 30:
+        n -= 5  # High temp might increase volatilization
+        
+    return max(0, n), max(0, p), max(0, k)
 
 def get_plant_status(soil, temp, hum, light, nitrogen, phosphorus, potassium):
     """Determine plant status based on rules."""
@@ -49,9 +59,6 @@ def get_plant_status(soil, temp, hum, light, nitrogen, phosphorus, potassium):
 
 @app.route('/api/plant-status', methods=['GET'])
 def plant_status():
-    if not model:
-        return jsonify({"error": "Model not loaded"}), 500
-
     try:
         # 1. Fetch data from ThingSpeak
         url = f"https://api.thingspeak.com/channels/{CHANNEL_ID}/feeds.json"
@@ -71,16 +78,8 @@ def plant_status():
         soil  = float(feed["field3"]) if feed["field3"] is not None else 0.0
         light = float(feed["field4"]) if feed["field4"] is not None else 0.0
 
-        # 2. Predict NPK
-        df = pd.DataFrame([{
-            "SoilMoisture": soil,
-            "Temperature": temp,
-            "Humidity": hum,
-            "Light": light
-        }])
-        
-        npk_pred = model.predict(df)[0]
-        nitrogen, phosphorus, potassium = npk_pred[0], npk_pred[1], npk_pred[2]
+        # 2. Estimate NPK (Lightweight)
+        nitrogen, phosphorus, potassium = estimate_npk(soil, temp, hum, light)
 
         # 3. Determine Status
         status, detail = get_plant_status(soil, temp, hum, light, nitrogen, phosphorus, potassium)

@@ -1,8 +1,9 @@
-pandas>=1.5.0
+# pandas>=1.5.0  <-- Removed to save space (using lightweight logic)
 requests>=2.28.0
-joblib>=1.2.0
-# selenium>=4.8.0  <-- Removed for Vercel Deployment (Selenium not supported on Serverless)
-scikit-learn>=1.2.0
+# joblib>=1.2.0  <-- Removed
+# selenium>=4.8.0
+# scikit-learn>=1.2.0 <-- Removed (Too large for Vercel free tier)
 flask>=2.3.0
 flask-cors>=4.0.0
 gunicorn>=20.1.0
+numpy>=1.24.0
