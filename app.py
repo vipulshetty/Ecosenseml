@@ -10,6 +10,10 @@ CORS(app)  # Enable CORS for all routes
 READ_API_KEY = "E6MTY3AFE7C0LQI6"
 CHANNEL_ID = "3173091"
 
+@app.route('/')
+def home():
+    return "<h1>🌿 Ecosense API is Running!</h1><p>Go to <a href='/api/plant-status'>/api/plant-status</a> to see the data.</p>"
+
 # Lightweight NPK Estimation (Since we can't load heavy ML libs on Vercel free tier)
 def estimate_npk(soil, temp, hum, light):
     """
