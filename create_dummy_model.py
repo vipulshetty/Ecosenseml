@@ -1,32 +1,36 @@
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.multioutput import MultiOutputRegressor
 import joblib
 import os
 
-# Define dummy data to train a simple model
-# Features: SoilMoisture, Temperature, Humidity, Light
+# Define dummy data to train a model that predicts NPK from environmental factors
+# Inputs: SoilMoisture, Temperature, Humidity, Light
+# Outputs: Nitrogen, Phosphorus, Potassium
 data = [
-    [50, 25, 60, 1000, "HEALTHY"],
-    [10, 25, 30, 1000, "DRY_SOIL"],
-    [90, 25, 80, 1000, "OVERWATERED"],
-    [50, 25, 60, 100,  "LOW_LIGHT"],
-    [45, 24, 65, 900,  "HEALTHY"],
-    [15, 28, 20, 1200, "DRY_SOIL"],
-    [85, 22, 85, 800,  "OVERWATERED"],
-    [55, 23, 62, 50,   "LOW_LIGHT"]
+    # Soil, Temp, Hum, Light,  N,  P,  K
+    [50,    25,   60,  1000,   40, 50, 60], # Ideal conditions -> Balanced NPK
+    [10,    25,   30,  1000,   10, 20, 30], # Dry/Poor soil -> Low NPK
+    [90,    25,   80,  1000,   30, 40, 50], # Wet -> Diluted/Leached? (Just dummy data)
+    [50,    25,   60,  100,    40, 50, 60], # Low light -> NPK might still be normal
+    [45,    24,   65,  900,    35, 45, 55],
+    [15,    28,   20,  1200,   15, 25, 35],
+    [85,    22,   85,  800,    30, 40, 50],
+    [55,    23,   62,  50,     40, 50, 60]
 ]
 
-df = pd.DataFrame(data, columns=["SoilMoisture", "Temperature", "Humidity", "Light", "Status"])
+df = pd.DataFrame(data, columns=["SoilMoisture", "Temperature", "Humidity", "Light", "Nitrogen", "Phosphorus", "Potassium"])
 
 X = df[["SoilMoisture", "Temperature", "Humidity", "Light"]]
-y = df["Status"]
+y = df[["Nitrogen", "Phosphorus", "Potassium"]]
 
-# Train model
-clf = RandomForestClassifier(n_estimators=10, random_state=42)
-clf.fit(X, y)
+# Train model (Multi-output Regression)
+# We use RandomForestRegressor wrapped in MultiOutputRegressor (though RF supports multi-output natively, this is explicit)
+regr = MultiOutputRegressor(RandomForestRegressor(n_estimators=10, random_state=42))
+regr.fit(X, y)
 
 # Save model
 model_path = "plant_health_rf.pkl"
-joblib.dump(clf, model_path)
+joblib.dump(regr, model_path)
 
-print(f"✅ Dummy model created successfully at: {os.path.abspath(model_path)}")
+print(f"✅ Dummy NPK-predictor model created successfully at: {os.path.abspath(model_path)}")

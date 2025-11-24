@@ -15,8 +15,8 @@ from time import sleep
 
 # =============== USER SETTINGS ===============
 
-READ_API_KEY = "YOUR_THINGSPEAK_READ_API_KEY"   # 🔁 CHANGE
-CHANNEL_ID   = "YOUR_CHANNEL_ID"                # 🔁 CHANGE
+READ_API_KEY = "E6MTY3AFE7C0LQI6"              # 🔁 CHANGE
+CHANNEL_ID   = "3173091"                       # 🔁 CHANGE
 
 CONTACT_NAME = "My Number"                      # 🔁 CHANGE (WhatsApp contact name)
 MODEL_PATH   = "plant_health_rf.pkl"            # must be in same folder
@@ -84,16 +84,17 @@ def read_latest_from_thingspeak():
 
     feed = feeds[0]
 
-    soil  = float(feed["field1"]) if feed["field1"] is not None else 0.0
-    temp  = float(feed["field2"]) if feed["field2"] is not None else 0.0
-    hum   = float(feed["field3"]) if feed["field3"] is not None else 0.0
-    light = float(feed["field4"]) if feed["field4"] is not None else 0.0
+    temp  = float(feed["field1"]) if feed["field1"] is not None else 0.0  # Field1 = Temperature
+    hum   = float(feed["field2"]) if feed["field2"] is not None else 0.0  # Field2 = Humidity
+    soil  = float(feed["field3"]) if feed["field3"] is not None else 0.0  # Field3 = Soil Moisture
+    light = float(feed["field4"]) if feed["field4"] is not None else 0.0  # Field4 = Light
 
     return soil, temp, hum, light
 
 # =============== ML PREDICTION ===============
 
 def analyze_condition(soil, temp, hum, light):
+    # 1. Predict NPK using the model
     df = pd.DataFrame([{
         "SoilMoisture": soil,
         "Temperature": temp,
@@ -101,35 +102,48 @@ def analyze_condition(soil, temp, hum, light):
         "Light": light
     }])
 
-    pred = model.predict(df)[0]
+    # Model returns [[N, P, K]]
+    npk_pred = model.predict(df)[0]
+    nitrogen, phosphorus, potassium = npk_pred[0], npk_pred[1], npk_pred[2]
 
-    if pred == "HEALTHY":
-        status = "🌱 PLANT IS HEALTHY"
-        detail = "All environmental conditions are within optimal range."
-    elif pred == "DRY_SOIL":
+    # 2. Determine Status based on Rules (since model now predicts NPK, not Status)
+    status = "🌱 PLANT IS HEALTHY"
+    detail = "All environmental conditions are within optimal range."
+
+    # Simple rule-based logic for status
+    if soil < 20:
         status = "⚠ SOIL TOO DRY — WATER REQUIRED"
         detail = "Soil moisture is too low. Please water the plant."
-    elif pred == "OVERWATERED":
+    elif soil > 80:
         status = "⚠ SOIL TOO WET — REDUCE WATERING"
-        detail = "Soil is holding too much water. Reduce watering and improve drainage."
-    elif pred == "LOW_LIGHT":
-        status = "⚠ INSUFFICIENT LIGHT — MOVE PLANT NEAR WINDOW"
-        detail = "Light intensity is too low. Move the plant to a brighter area."
-    else:
-        status = f"UNKNOWN CONDITION ({pred})"
-        detail = "Model returned an unexpected label. Check training classes."
+        detail = "Soil is holding too much water. Reduce watering."
+    elif light < 200:
+        status = "⚠ INSUFFICIENT LIGHT"
+        detail = "Light intensity is too low. Move to a brighter spot."
+    elif nitrogen < 20:
+        status = "⚠ LOW NITROGEN"
+        detail = "Predicted Nitrogen levels are low. Add fertilizer."
+    elif phosphorus < 20:
+        status = "⚠ LOW PHOSPHORUS"
+        detail = "Predicted Phosphorus levels are low. Add fertilizer."
+    elif potassium < 20:
+        status = "⚠ LOW POTASSIUM"
+        detail = "Predicted Potassium levels are low. Add fertilizer."
 
-    return pred, status, detail
+    return nitrogen, phosphorus, potassium, status, detail
 
 # =============== LOGGING ===============
 
-def log_to_csv(timestamp, soil, temp, hum, light, status):
+def log_to_csv(timestamp, soil, temp, hum, light, nitrogen, phosphorus, potassium, status):
     row = {
         "Timestamp":    timestamp,
         "SoilMoisture": soil,
         "Temperature":  temp,
         "Humidity":     hum,
         "Light":        light,
+        "Nitrogen":     nitrogen,
+        "Phosphorus":   phosphorus,
+        "Potassium":    potassium,
         "Status":       status
     }
     df = pd.DataFrame([row])
@@ -139,7 +153,7 @@ def log_to_csv(timestamp, soil, temp, hum, light, status):
 
 # =============== DISPLAY ===============
 
-def print_reading(timestamp, soil, temp, hum, light, status, detail):
+def print_reading(timestamp, soil, temp, hum, light, nitrogen, phosphorus, potassium, status, detail):
     print("\n=====================================")
     print(f"🕒 {timestamp}")
     print(f"{status}")
@@ -148,6 +162,9 @@ def print_reading(timestamp, soil, temp, hum, light, status, detail):
     print(f"🌡 Temperature   : {temp:.2f} °C")
     print(f"💦 Humidity      : {hum:.2f} %")
     print(f"💡 Light         : {light:.2f} lux")
+    print(f"🧪 Nitrogen (Pred): {nitrogen:.2f} mg/kg")
+    print(f"🧪 Phosphorus(Pred): {phosphorus:.2f} mg/kg")
+    print(f"🧪 Potassium (Pred): {potassium:.2f} mg/kg")
 
     if len(soil_history) > 1:
         avg_soil  = sum(soil_history) / len(soil_history)
@@ -164,7 +181,7 @@ def print_reading(timestamp, soil, temp, hum, light, status, detail):
 
 # =============== ALERT LOGIC ===============
 
-def maybe_send_alert(status, detail, timestamp, soil, temp, hum, light):
+def maybe_send_alert(status, detail, timestamp, soil, temp, hum, light, nitrogen, phosphorus, potassium):
     if status.startswith("🌱 PLANT IS HEALTHY"):
         return  # no alert
 
@@ -176,7 +193,10 @@ def maybe_send_alert(status, detail, timestamp, soil, temp, hum, light):
         f"💧 Soil Moisture: {soil:.2f}%\n"
         f"🌡 Temperature : {temp:.2f}°C\n"
         f"💦 Humidity    : {hum:.2f}%\n"
-        f"💡 Light       : {light:.2f} lux"
+        f"💡 Light       : {light:.2f} lux\n"
+        f"🧪 Nitrogen    : {nitrogen:.2f} mg/kg\n"
+        f"🧪 Phosphorus  : {phosphorus:.2f} mg/kg\n"
+        f"🧪 Potassium   : {potassium:.2f} mg/kg"
     )
     send_whatsapp(msg)
 
@@ -195,10 +215,10 @@ while True:
         hum_history.append(hum)
         light_history.append(light)
 
-        pred, status, detail = analyze_condition(soil, temp, hum, light)
-        print_reading(timestamp, soil, temp, hum, light, status, detail)
-        log_to_csv(timestamp, soil, temp, hum, light, status)
-        maybe_send_alert(status, detail, timestamp, soil, temp, hum, light)
+        nitrogen, phosphorus, potassium, status, detail = analyze_condition(soil, temp, hum, light)
+        print_reading(timestamp, soil, temp, hum, light, nitrogen, phosphorus, potassium, status, detail)
+        log_to_csv(timestamp, soil, temp, hum, light, nitrogen, phosphorus, potassium, status)
+        maybe_send_alert(status, detail, timestamp, soil, temp, hum, light, nitrogen, phosphorus, potassium)
 
     except Exception as e:
         print("⚠ Error in loop:", e)
